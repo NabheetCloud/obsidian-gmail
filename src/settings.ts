@@ -12,8 +12,6 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		const s = this.plugin.settings;
 
-		new Setting(containerEl).setName("Gmail Mailbox").setHeading();
-
 		// --- Account / auth ---
 		new Setting(containerEl).setName("Account").setHeading();
 		containerEl.createEl("p", {
@@ -273,32 +271,29 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 						this.display();
 					}),
 			)
-			.addButton((b) =>
-				b
-					.setButtonText("Stop")
-					.setDestructive()
+			.addButton((b) => {
+				b.setButtonText("Stop")
 					.setDisabled(!this.plugin.sync.isRunning)
 					.onClick(() => {
 						this.plugin.stopSync();
 						this.display();
-					}),
-			);
+					});
+				b.buttonEl.addClass("mod-warning");
+			});
 
 		new Setting(containerEl)
 			.setName("Reset sync state")
 			.setDesc(
 				"Clears history cursors and the thread index so the next sync re-enumerates all messages. Existing notes are kept.",
 			)
-			.addButton((b) =>
-				b
-					.setButtonText("Reset")
-					.setDestructive()
-					.onClick(async () => {
-						this.plugin.sync.resetState();
-						await this.plugin.saveSettings();
-						new Notice("Sync state reset. Next sync will do a full enumeration.");
-					}),
-			);
+			.addButton((b) => {
+				b.setButtonText("Reset").onClick(async () => {
+					this.plugin.sync.resetState();
+					await this.plugin.saveSettings();
+					new Notice("Sync state reset. Next sync will do a full enumeration.");
+				});
+				b.buttonEl.addClass("mod-warning");
+			});
 
 		if (s.lastSync) {
 			containerEl.createEl("p", {
