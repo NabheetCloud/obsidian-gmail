@@ -5,8 +5,8 @@
 	align-items: center;
 }
 
-.gmail-mailbox-invalid {
-	border-color: var(--text-error) !important;
+.gmail-mailbox-invalid.gmail-mailbox-invalid {
+	border-color: var(--text-error);
 }
 
 /* Upcoming meetings sidebar */

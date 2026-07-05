@@ -501,6 +501,7 @@ function parseHeaderDate(raw: string): string {
 
 // ---- base64url ----
 
+/* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument -- Node's Buffer resolves to `any` under the community review linter, whose TS program omits @types/node; false positives on desktop-only code, not real type holes. */
 function base64UrlToBuffer(data: string): Buffer {
 	const norm = data.replace(/-/g, "+").replace(/_/g, "/");
 	return Buffer.from(norm, "base64");
@@ -517,6 +518,7 @@ function base64UrlToArrayBuffer(data: string): ArrayBuffer {
 	out.set(buf);
 	return out.buffer;
 }
+/* eslint-enable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument -- Closes the Buffer-interop disable above. */
 
 /** Minimal HTML-entity decode for the plaintext snippet. */
 function decodeEntities(s: string): string {
@@ -534,5 +536,5 @@ function cancelled(): Error {
 }
 
 function sleep(ms: number): Promise<void> {
-	return new Promise((r) => setTimeout(r, ms));
+	return new Promise((r) => window.setTimeout(r, ms));
 }

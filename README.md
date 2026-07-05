@@ -18,7 +18,12 @@ You need a Google Cloud OAuth client. It's free.
 
 1. **Create/select a project** at <https://console.cloud.google.com/>.
 2. **Enable the APIs**: APIs & Services → Library → enable **Gmail API** and **Google Calendar API**.
-3. **OAuth consent screen**: choose **External**, fill the app name/email, and under **Test users** add your own Google address. (While the app is in "testing" you don't need Google verification — test users can use it.)
+3. **Configure the consent screen / audience** (in newer consoles this is **Google Auth Platform → Audience**; in older ones **APIs & Services → OAuth consent screen**):
+   - **User type / Audience → External.** If it's set to **Internal**, sign-in fails with `Error 403: org_internal` for any account outside your Google Workspace organization — switch it to External. (A personal Gmail-owned project is External-only, so you may not see this choice.)
+   - Fill in the app name and support email.
+   - **Publishing status → Testing** (leave it here — no Google verification needed while testing).
+   - **Test users → + Add users →** add every Google address you'll sign in with (e.g. your own Gmail). Only listed test users can authorize the app in Testing mode; up to 100 are allowed.
+   - On first sign-in you'll see a **"Google hasn't verified this app"** screen — that's expected for an unverified test app. Click **Advanced → Go to \<app\> (unsafe)** to continue.
 4. **Create the client**: APIs & Services → Credentials → **Create credentials → OAuth client ID → Application type: Desktop app**.
    - This is important: pick **Desktop app**, *not* Web application. The Desktop type accepts loopback (`http://127.0.0.1:<port>`) redirects without registering a port.
 5. Copy the **Client ID** and **Client secret** from the dialog into the plugin's settings.

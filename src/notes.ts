@@ -332,7 +332,7 @@ function vaultLink(notePath: string): string {
 }
 
 function escapeMd(s: string): string {
-	return s.replace(/([\\`*_{}\[\]])/g, "\\$1");
+	return s.replace(/([\\`*_{}[\]])/g, "\\$1");
 }
 
 function yaml(obj: Record<string, unknown>): string {
@@ -357,7 +357,7 @@ function yamlScalar(v: unknown): string {
 	if (typeof v === "boolean" || typeof v === "number") return String(v);
 	const s = String(v ?? "");
 	if (s === "") return '""';
-	if (/[:#\[\]{}",&*!|>'%@`]/.test(s) || /^\s|\s$/.test(s)) {
+	if (/[:#[\]{}",&*!|>'%@`]/.test(s) || /^\s|\s$/.test(s)) {
 		return `"${s.replace(/"/g, '\\"')}"`;
 	}
 	return s;

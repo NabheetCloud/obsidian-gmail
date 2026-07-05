@@ -12,10 +12,10 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		const s = this.plugin.settings;
 
-		containerEl.createEl("h2", { text: "Gmail Mailbox" });
+		new Setting(containerEl).setName("Gmail Mailbox").setHeading();
 
 		// --- Account / auth ---
-		containerEl.createEl("h3", { text: "Account" });
+		new Setting(containerEl).setName("Account").setHeading();
 		containerEl.createEl("p", {
 			text:
 				"Create a Google Cloud OAuth client of type “Desktop app” (APIs & Services → Credentials), " +
@@ -85,7 +85,7 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 			});
 
 		// --- Vault layout ---
-		containerEl.createEl("h3", { text: "Vault layout" });
+		new Setting(containerEl).setName("Vault layout").setHeading();
 
 		new Setting(containerEl)
 			.setName("Target folder")
@@ -101,7 +101,7 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 			);
 
 		// --- Label mappings ---
-		containerEl.createEl("h3", { text: "Labels to sync" });
+		new Setting(containerEl).setName("Labels to sync").setHeading();
 		containerEl.createEl("p", {
 			text: "Map Gmail labels to vault subfolders. Use a system label (INBOX, SENT, STARRED, IMPORTANT) or a user label's name like Projects/ClientX.",
 			cls: "setting-item-description",
@@ -123,7 +123,7 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 		);
 
 		// --- Sync behaviour ---
-		containerEl.createEl("h3", { text: "Sync" });
+		new Setting(containerEl).setName("Sync").setHeading();
 
 		new Setting(containerEl)
 			.setName("Sync mail newer than")
@@ -200,7 +200,7 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 			);
 
 		// --- Calendar ---
-		containerEl.createEl("h3", { text: "Calendar" });
+		new Setting(containerEl).setName("Calendar").setHeading();
 		containerEl.createEl("p", {
 			text: "Requires the Google Calendar API and the calendar.readonly scope. If you enabled it after connecting, click Reconnect above to re-consent.",
 			cls: "setting-item-description",
@@ -257,7 +257,7 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 		}
 
 		// --- Maintenance ---
-		containerEl.createEl("h3", { text: "Maintenance" });
+		new Setting(containerEl).setName("Maintenance").setHeading();
 		new Setting(containerEl)
 			.setName("Sync now")
 			.setDesc("Stop halts the running sync at the next message/page; already-written notes are kept.")
@@ -269,14 +269,14 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 					.onClick(() => {
 						// Fire without awaiting so the panel can re-render immediately
 						// (enabling Stop); re-render again when the run settles.
-						this.plugin.runSync().finally(() => this.display());
+						void this.plugin.runSync().finally(() => this.display());
 						this.display();
 					}),
 			)
 			.addButton((b) =>
 				b
 					.setButtonText("Stop")
-					.setWarning()
+					.setDestructive()
 					.setDisabled(!this.plugin.sync.isRunning)
 					.onClick(() => {
 						this.plugin.stopSync();
@@ -292,7 +292,7 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 			.addButton((b) =>
 				b
 					.setButtonText("Reset")
-					.setWarning()
+					.setDestructive()
 					.onClick(async () => {
 						this.plugin.sync.resetState();
 						await this.plugin.saveSettings();

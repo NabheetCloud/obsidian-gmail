@@ -64,7 +64,8 @@ export default class GmailMailboxPlugin extends Plugin {
 		this.addCommand({
 			id: "gmail-connect",
 			name: "Connect account",
-			callback: () => this.connect().catch((e) => new Notice(`Connect failed: ${e.message}`)),
+			callback: () =>
+				this.connect().catch((e) => new Notice(`Connect failed: ${(e as Error).message}`)),
 		});
 		this.addCommand({
 			id: "gmail-open-upcoming",
@@ -152,7 +153,7 @@ export default class GmailMailboxPlugin extends Plugin {
 			leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
 			await leaf.setViewState({ type: VIEW_TYPE_UPCOMING, active: true });
 		}
-		workspace.revealLeaf(leaf);
+		await workspace.revealLeaf(leaf);
 	}
 
 	/** Re-renders any open Upcoming views from the refreshed cache. */
@@ -204,7 +205,7 @@ export default class GmailMailboxPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		const data = (await this.loadData()) ?? {};
+		const data = ((await this.loadData()) as Partial<PluginSettings> | null) ?? {};
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
 		this.settings.historyIds = this.settings.historyIds ?? {};
 		this.settings.threads = this.settings.threads ?? {};

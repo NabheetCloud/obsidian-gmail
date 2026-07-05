@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument -- Node built-ins (crypto, http, Buffer, URL) resolve to `any` under the community review linter, whose TS program omits @types/node; these are false positives on desktop-only code, not real type holes. */
 import * as http from "http";
 import * as crypto from "crypto";
 import { AddressInfo } from "net";
@@ -89,23 +90,23 @@ export async function interactiveLogin(
 					resolve({ code, redirectUri });
 				} catch (e) {
 					cleanup();
-					reject(e as Error);
+					reject(e instanceof Error ? e : new Error(String(e)));
 				}
 			});
 
-			const timeout = setTimeout(() => {
+			const timeout = window.setTimeout(() => {
 				cleanup();
 				reject(new Error("Login timed out after 5 minutes."));
 			}, 5 * 60 * 1000);
 
 			function cleanup() {
-				clearTimeout(timeout);
+				window.clearTimeout(timeout);
 				server.close();
 			}
 
 			server.on("error", (e) => {
-				clearTimeout(timeout);
-				reject(e);
+				window.clearTimeout(timeout);
+				reject(e instanceof Error ? e : new Error(String(e)));
 			});
 
 			// Bind to a random free port on loopback only.
@@ -214,3 +215,4 @@ box-shadow:0 8px 30px rgba(0,0,0,.4)}h1{margin:0 0 .5rem;font-size:1.4rem}
 p{margin:0;color:#aaa}</style></head>
 <body><div class="card"><h1>${title}</h1><p>${message}</p></div></body></html>`;
 }
+/* eslint-enable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument -- Closes the file-scoped disable for the Node-interop code above. */
