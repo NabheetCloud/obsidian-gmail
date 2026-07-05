@@ -1,0 +1,10 @@
+{
+  "id": "gmail-mailbox",
+  "name": "Gmail Mailbox",
+  "version": "1.0.0",
+  "minAppVersion": "1.7.2",
+  "description": "Sync Gmail into your vault as one note per email plus a per-label thread index. Incremental history sync, PKCE auth, configurable labels, and a Google Calendar upcoming-meetings sidebar.",
+  "author": "Nabheet Madan",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}
