@@ -56,12 +56,11 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 			b
 				// No setIcon here: an icon replaces the button text, leaving a
 				// bare "+" indistinguishable from the per-account "Add label".
+				// No render-time setDisabled either: the tab doesn't re-render
+				// when a sync starts/ends elsewhere, so it goes stale; the
+				// click-time check below is the real guard.
 				.setButtonText("Add account")
-				.setDisabled(this.plugin.isSyncing)
 				.onClick(async () => {
-					// Re-check at click time: the disabled state above is only
-					// computed on render, and a background auto-sync may have
-					// started since.
 					if (this.plugin.isSyncing) {
 						new Notice("Gmail Mailbox: wait for the running sync to finish.");
 						return;
@@ -151,7 +150,9 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 				b
 					.setButtonText("Sync now")
 					.setCta()
-					.setDisabled(this.plugin.isSyncing)
+					// runSync/stopSync carry their own already-running/idle
+					// guards; render-time disabling goes stale when a sync
+					// starts or ends while this tab is open.
 					.onClick(() => {
 						// Fire without awaiting so the panel can re-render immediately
 						// (enabling Stop); re-render again when the run settles.
@@ -160,12 +161,10 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 					}),
 			)
 			.addButton((b) => {
-				b.setButtonText("Stop")
-					.setDisabled(!this.plugin.isSyncing)
-					.onClick(() => {
-						this.plugin.stopSync();
-						this.display();
-					});
+				b.setButtonText("Stop").onClick(() => {
+					this.plugin.stopSync();
+					this.display();
+				});
 				b.buttonEl.addClass("mod-warning");
 			});
 
@@ -199,9 +198,8 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 				b
 					.setIcon("trash")
 					.setTooltip("Remove account. Notes already in the vault are kept.")
-					.setDisabled(this.plugin.isSyncing)
 					.onClick(async () => {
-						// Re-check at click time; see the Add-account handler.
+						// Click-time guard; render-time disabling goes stale.
 						if (this.plugin.isSyncing) {
 							new Notice("Gmail Mailbox: wait for the running sync to finish.");
 							return;
