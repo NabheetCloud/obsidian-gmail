@@ -44,6 +44,10 @@ export interface AccountSettings {
 	 * write-filter on incremental history syncs.
 	 */
 	syncSince: string;
+	/** Save this account's attachments under an `_attachments` subfolder. */
+	downloadAttachments: boolean;
+	/** Max attachment size to download, in MB (0 = no limit). */
+	maxAttachmentMB: number;
 
 	// --- Calendar ---
 	/** Fetch Google Calendar events and show them in the Upcoming sidebar. */
@@ -88,10 +92,6 @@ export interface PluginSettings {
 	syncIntervalMinutes: number;
 	/** Sync automatically when Obsidian starts. */
 	syncOnStartup: boolean;
-	/** Save attachments alongside notes under an `_attachments` subfolder. */
-	downloadAttachments: boolean;
-	/** Max attachment size to download, in MB (0 = no limit). */
-	maxAttachmentMB: number;
 	/** Verbose console logging under the `[obs-gmail]` prefix. */
 	debugLogging: boolean;
 }
@@ -207,6 +207,8 @@ export function normalizeAccount(a: Partial<AccountSettings>): AccountSettings {
 			? a.labels
 			: [{ gmailLabel: "INBOX", vaultSubfolder: "Inbox", enabled: true }],
 		syncSince: a.syncSince ?? "",
+		downloadAttachments: a.downloadAttachments ?? false,
+		maxAttachmentMB: a.maxAttachmentMB ?? 10,
 		syncCalendar: a.syncCalendar ?? false,
 		calendarDaysAhead: a.calendarDaysAhead ?? 14,
 		calendarSubfolder: a.calendarSubfolder ?? "Calendar",
@@ -229,9 +231,15 @@ export function normalizeAccount(a: Partial<AccountSettings>): AccountSettings {
  */
 export function migrateSettings(data: unknown): PluginSettings {
 	const raw = (data ?? {}) as Partial<PluginSettings> & Partial<AccountSettings>;
+	// Attachment settings used to be plugin-wide; accounts saved before the
+	// move inherit the old top-level values unless they carry their own.
+	const inherited: Partial<AccountSettings> = {
+		downloadAttachments: raw.downloadAttachments,
+		maxAttachmentMB: raw.maxAttachmentMB,
+	};
 	const accounts =
 		Array.isArray(raw.accounts) && raw.accounts.length
-			? raw.accounts.map((a) => normalizeAccount(a ?? {}))
+			? raw.accounts.map((a) => normalizeAccount({ ...inherited, ...(a ?? {}) }))
 			: [normalizeAccount(raw)];
 	return {
 		clientId: raw.clientId ?? "",
@@ -239,8 +247,6 @@ export function migrateSettings(data: unknown): PluginSettings {
 		accounts,
 		syncIntervalMinutes: raw.syncIntervalMinutes ?? 15,
 		syncOnStartup: raw.syncOnStartup ?? true,
-		downloadAttachments: raw.downloadAttachments ?? false,
-		maxAttachmentMB: raw.maxAttachmentMB ?? 10,
 		debugLogging: raw.debugLogging ?? false,
 	};
 }

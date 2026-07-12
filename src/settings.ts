@@ -106,29 +106,6 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 		);
 
 		new Setting(containerEl)
-			.setName("Download attachments")
-			.setDesc("Save file attachments under each subfolder's _attachments directory.")
-			.addToggle((t) =>
-				t.setValue(s.downloadAttachments).onChange(async (v) => {
-					s.downloadAttachments = v;
-					await this.plugin.saveSettings();
-					this.display();
-				}),
-			);
-
-		if (s.downloadAttachments) {
-			new Setting(containerEl)
-				.setName("Max attachment size (MB)")
-				.setDesc("0 = no limit.")
-				.addText((t) =>
-					t.setValue(String(s.maxAttachmentMB)).onChange(async (v) => {
-						s.maxAttachmentMB = Math.max(0, Math.floor(Number(v) || 0));
-						await this.plugin.saveSettings();
-					}),
-				);
-		}
-
-		new Setting(containerEl)
 			.setName("Debug logging")
 			.setDesc("Verbose console output under the [obs-gmail] prefix.")
 			.addToggle((t) =>
@@ -314,6 +291,29 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		new Setting(containerEl)
+			.setName("Download attachments")
+			.setDesc("Save this account's file attachments under each subfolder's _attachments directory.")
+			.addToggle((t) =>
+				t.setValue(account.downloadAttachments).onChange(async (v) => {
+					account.downloadAttachments = v;
+					await this.plugin.saveSettings();
+					this.display();
+				}),
+			);
+
+		if (account.downloadAttachments) {
+			new Setting(containerEl)
+				.setName("Max attachment size (MB)")
+				.setDesc("0 = no limit.")
+				.addText((t) =>
+					t.setValue(String(account.maxAttachmentMB)).onChange(async (v) => {
+						account.maxAttachmentMB = Math.max(0, Math.floor(Number(v) || 0));
+						await this.plugin.saveSettings();
+					}),
+				);
+		}
 
 		new Setting(containerEl)
 			.setName("Sync calendar")

@@ -211,7 +211,7 @@ export class SyncEngine {
 					const isUpdate = this.messageExists(message.id);
 					const { ref } = await this.notes.writeMessage(message, vaultSubfolder);
 					this.upsertThread(vaultSubfolder, message, ref, touchedThreadKeys);
-					if (this.settings.downloadAttachments && message.hasAttachments) {
+					if (this.account.downloadAttachments && message.hasAttachments) {
 						await this.saveAttachments(vaultSubfolder, message.id, attachments, report);
 					}
 					if (isUpdate) report.updated++;
@@ -397,7 +397,7 @@ export class SyncEngine {
 		report: SyncReport,
 	): Promise<void> {
 		try {
-			const limit = this.settings.maxAttachmentMB * 1024 * 1024;
+			const limit = this.account.maxAttachmentMB * 1024 * 1024;
 			for (const a of attachments) {
 				if (!a.attachmentId) continue;
 				if (limit > 0 && a.size > limit) {

@@ -10,8 +10,8 @@ Built as a sibling to the Outlook Mailbox plugin and shares its design: incremen
 - A regenerated `_Thread Index.md` per label grouping messages by conversation.
 - Incremental sync via Gmail's `history.list` — only changes since the last run. First run enumerates the whole label (optionally filtered by a start date).
 - Google Calendar: a rolling 14-day (configurable) upcoming window, one note per event, an *Upcoming meetings* sidebar, and cross-links from meetings to related emails (shared attendees + subject).
-- Optional attachment download with a size cap.
-- Multiple Google accounts (e.g. work + personal), each with its own folders, labels, calendar, and sync state.
+- Optional attachment download with a size cap, per account.
+- Multiple Google accounts (e.g. work + personal), each with its own folders, labels, calendar, attachments, and sync state.
 
 ## One-time Google Cloud setup
 
