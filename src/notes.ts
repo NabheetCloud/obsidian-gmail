@@ -1,6 +1,6 @@
 import { App, normalizePath, TFile, TFolder } from "obsidian";
 import TurndownService from "turndown";
-import { CalEvent, MailMessage, Person, PluginSettings, ThreadEntry, ThreadMessageRef } from "./types";
+import { AccountSettings, CalEvent, MailMessage, Person, ThreadEntry, ThreadMessageRef } from "./types";
 import { log } from "./log";
 
 const turndown = new TurndownService({
@@ -12,10 +12,10 @@ const turndown = new TurndownService({
 turndown.remove(["style", "script"]);
 
 export class NoteWriter {
-	constructor(private app: App, private settings: PluginSettings) {}
+	constructor(private app: App, private account: AccountSettings) {}
 
 	private get root(): string {
-		return normalizePath(this.settings.targetFolder);
+		return normalizePath(this.account.targetFolder);
 	}
 
 	/** Ensures every folder along a vault-relative path exists. */

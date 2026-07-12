@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting, Notice } from "obsidian";
 import type GmailMailboxPlugin from "./main";
-import { LabelMapping } from "./types";
+import { AccountSettings, LabelMapping, normalizeAccount } from "./types";
 
 export class GmailMailboxSettingTab extends PluginSettingTab {
 	constructor(app: App, private plugin: GmailMailboxPlugin) {
@@ -12,49 +12,16 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		const s = this.plugin.settings;
 
-		// --- Account / auth ---
-		new Setting(containerEl).setName("Account").setHeading();
+		// --- Google OAuth client (shared by all accounts) ---
+		new Setting(containerEl).setName("Google OAuth client").setHeading();
 		containerEl.createEl("p", {
 			text:
 				"Create a Google Cloud OAuth client of type “Desktop app” (APIs & Services → Credentials), " +
 				"enable the Gmail API and Google Calendar API, and add yourself as a test user on the OAuth consent screen. " +
-				"Paste the Client ID and Client secret below. See README for the full walkthrough.",
+				"Paste the Client ID and Client secret below. One client serves every account; each account " +
+				"connects with its own consent. See README for the full walkthrough.",
 			cls: "setting-item-description",
 		});
-
-		const status = this.plugin.gmail.isAuthenticated
-			? `Connected${this.plugin.connectedAs ? ` as ${this.plugin.connectedAs}` : ""}`
-			: "Not connected";
-		new Setting(containerEl)
-			.setName("Connection status")
-			.setDesc(status)
-			.addButton((b) =>
-				b
-					.setButtonText(this.plugin.gmail.isAuthenticated ? "Reconnect" : "Connect")
-					.setCta()
-					.onClick(async () => {
-						b.setDisabled(true);
-						try {
-							await this.plugin.connect();
-							new Notice("Connected to Google.");
-						} catch (e) {
-							new Notice(`Connection failed: ${(e as Error).message}`);
-						} finally {
-							b.setDisabled(false);
-							this.display();
-						}
-					}),
-			)
-			.addExtraButton((b) =>
-				b
-					.setIcon("log-out")
-					.setTooltip("Disconnect")
-					.onClick(async () => {
-						await this.plugin.gmail.logout();
-						new Notice("Disconnected.");
-						this.display();
-					}),
-			);
 
 		new Setting(containerEl)
 			.setName("Client ID")
@@ -82,67 +49,42 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 				t.inputEl.type = "password";
 			});
 
-		// --- Vault layout ---
-		new Setting(containerEl).setName("Vault layout").setHeading();
-
-		new Setting(containerEl)
-			.setName("Target folder")
-			.setDesc("Root vault folder that all mail notes live under.")
-			.addText((t) =>
-				t
-					.setPlaceholder("10-Mailbox/Gmail")
-					.setValue(s.targetFolder)
-					.onChange(async (v) => {
-						s.targetFolder = v.trim() || "10-Mailbox/Gmail";
-						await this.plugin.saveSettings();
-					}),
-			);
-
-		// --- Label mappings ---
-		new Setting(containerEl).setName("Labels to sync").setHeading();
-		containerEl.createEl("p", {
-			text: "Map Gmail labels to vault subfolders. Use a system label (INBOX, SENT, STARRED, IMPORTANT) or a user label's name like Projects/ClientX.",
-			cls: "setting-item-description",
-		});
-
-		s.labels.forEach((mapping, idx) => {
-			this.renderLabelRow(containerEl, mapping, idx);
-		});
+		// --- Accounts ---
+		s.accounts.forEach((account, idx) => this.renderAccount(containerEl, account, idx));
 
 		new Setting(containerEl).addButton((b) =>
 			b
-				.setButtonText("Add label")
-				.setIcon("plus")
+				// No setIcon here: an icon replaces the button text, leaving a
+				// bare "+" indistinguishable from the per-account "Add label".
+				// No render-time setDisabled either: the tab doesn't re-render
+				// when a sync starts/ends elsewhere, so it goes stale; the
+				// click-time check below is the real guard.
+				.setButtonText("Add account")
 				.onClick(async () => {
-					s.labels.push({ gmailLabel: "", vaultSubfolder: "", enabled: true });
+					if (this.plugin.isSyncing) {
+						new Notice("Gmail Mailbox: wait for the running sync to finish.");
+						return;
+					}
+					// Default the new account to a folder no existing account
+					// writes into; accounts sharing a target folder overwrite
+					// each other's thread indexes.
+					const used = new Set(s.accounts.map((a) => a.targetFolder));
+					let folder = "10-Mailbox/Gmail";
+					for (let i = 2; used.has(folder); i++) folder = `10-Mailbox/Gmail ${i}`;
+					s.accounts.push(
+						normalizeAccount({
+							displayName: `Account ${s.accounts.length + 1}`,
+							targetFolder: folder,
+						}),
+					);
+					this.plugin.rebuildContexts();
 					await this.plugin.saveSettings();
 					this.display();
 				}),
 		);
 
-		// --- Sync behaviour ---
+		// --- Sync behaviour (shared) ---
 		new Setting(containerEl).setName("Sync").setHeading();
-
-		new Setting(containerEl)
-			.setName("Sync mail newer than")
-			.setDesc(
-				"Only import mail received on/after this date (YYYY-MM-DD). Leave empty for all mail. Pushed to Gmail as an `after:` filter on the first sync.",
-			)
-			.addText((t) =>
-				t
-					.setPlaceholder("2025-01-01")
-					.setValue(s.syncSince)
-					.onChange(async (v) => {
-						const val = v.trim();
-						if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-							t.inputEl.addClass("gmail-mailbox-invalid");
-							return;
-						}
-						t.inputEl.removeClass("gmail-mailbox-invalid");
-						s.syncSince = val;
-						await this.plugin.saveSettings();
-					}),
-			);
 
 		new Setting(containerEl)
 			.setName("Auto-sync interval (minutes)")
@@ -164,29 +106,6 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 		);
 
 		new Setting(containerEl)
-			.setName("Download attachments")
-			.setDesc("Save file attachments under each subfolder's _attachments directory.")
-			.addToggle((t) =>
-				t.setValue(s.downloadAttachments).onChange(async (v) => {
-					s.downloadAttachments = v;
-					await this.plugin.saveSettings();
-					this.display();
-				}),
-			);
-
-		if (s.downloadAttachments) {
-			new Setting(containerEl)
-				.setName("Max attachment size (MB)")
-				.setDesc("0 = no limit.")
-				.addText((t) =>
-					t.setValue(String(s.maxAttachmentMB)).onChange(async (v) => {
-						s.maxAttachmentMB = Math.max(0, Math.floor(Number(v) || 0));
-						await this.plugin.saveSettings();
-					}),
-				);
-		}
-
-		new Setting(containerEl)
 			.setName("Debug logging")
 			.setDesc("Verbose console output under the [obs-gmail] prefix.")
 			.addToggle((t) =>
@@ -197,31 +116,230 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 				}),
 			);
 
-		// --- Calendar ---
-		new Setting(containerEl).setName("Calendar").setHeading();
+		// --- Maintenance ---
+		new Setting(containerEl).setName("Maintenance").setHeading();
+		new Setting(containerEl)
+			.setName("Sync now")
+			.setDesc(
+				"Syncs every connected account. Stop halts the running sync at the next message/page; already-written notes are kept.",
+			)
+			.addButton((b) =>
+				b
+					.setButtonText("Sync now")
+					.setCta()
+					// runSync/stopSync carry their own already-running/idle
+					// guards; render-time disabling goes stale when a sync
+					// starts or ends while this tab is open.
+					.onClick(() => {
+						// Fire without awaiting so the panel can re-render immediately
+						// (enabling Stop); re-render again when the run settles.
+						void this.plugin.runSync().finally(() => this.display());
+						this.display();
+					}),
+			)
+			.addButton((b) => {
+				b.setButtonText("Stop").onClick(() => {
+					this.plugin.stopSync();
+					this.display();
+				});
+				b.buttonEl.addClass("mod-warning");
+			});
+
+		new Setting(containerEl)
+			.setName("Upcoming panel")
+			.addButton((b) => b.setButtonText("Open sidebar").onClick(() => this.plugin.activateUpcomingView()));
+
+		new Setting(containerEl)
+			.setName("Reset sync state")
+			.setDesc(
+				"Clears history cursors and the thread index for every account so the next sync re-enumerates all messages. Existing notes are kept.",
+			)
+			.addButton((b) => {
+				b.setButtonText("Reset").onClick(async () => {
+					for (const ctx of this.plugin.contexts) ctx.sync.resetState();
+					await this.plugin.saveSettings();
+					new Notice("Sync state reset. Next sync will do a full enumeration.");
+				});
+				b.buttonEl.addClass("mod-warning");
+			});
+	}
+
+	private renderAccount(containerEl: HTMLElement, account: AccountSettings, idx: number): void {
+		const s = this.plugin.settings;
+		const ctx = this.plugin.contextFor(account);
+
+		new Setting(containerEl)
+			.setName(account.displayName || `Account ${idx + 1}`)
+			.setHeading()
+			.addExtraButton((b) =>
+				b
+					.setIcon("trash")
+					.setTooltip("Remove account. Notes already in the vault are kept.")
+					.onClick(async () => {
+						// Click-time guard; render-time disabling goes stale.
+						if (this.plugin.isSyncing) {
+							new Notice("Gmail Mailbox: wait for the running sync to finish.");
+							return;
+						}
+						s.accounts.splice(idx, 1);
+						// The UI (and sync loop) assume at least one account exists.
+						if (!s.accounts.length) s.accounts.push(normalizeAccount({}));
+						this.plugin.rebuildContexts();
+						await this.plugin.saveSettings();
+						this.display();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Account name")
+			.setDesc("Shown in notices, sync logs, and the Upcoming sidebar.")
+			.addText((t) =>
+				t.setValue(account.displayName).onChange(async (v) => {
+					account.displayName = v.trim() || `Account ${idx + 1}`;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		const connected = !!ctx?.gmail.isAuthenticated;
+		const status = connected
+			? `Connected${account.emailAddress ? ` as ${account.emailAddress}` : ""}` +
+				(account.lastSync ? ` · last sync ${new Date(account.lastSync).toLocaleString()}` : "")
+			: "Not connected";
+		new Setting(containerEl)
+			.setName("Connection status")
+			.setDesc(status)
+			.addButton((b) =>
+				b
+					.setButtonText(connected ? "Reconnect" : "Connect")
+					.setCta()
+					.onClick(async () => {
+						b.setDisabled(true);
+						try {
+							await this.plugin.connect(account);
+							new Notice(`Connected to Google (${account.displayName}).`);
+						} catch (e) {
+							new Notice(`Connection failed: ${(e as Error).message}`);
+						} finally {
+							b.setDisabled(false);
+							this.display();
+						}
+					}),
+			)
+			.addExtraButton((b) =>
+				b
+					.setIcon("log-out")
+					.setTooltip("Disconnect")
+					.onClick(async () => {
+						await ctx?.gmail.logout();
+						account.emailAddress = null;
+						await this.plugin.saveSettings();
+						new Notice(`Disconnected ${account.displayName}.`);
+						this.display();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Target folder")
+			.setDesc("Root vault folder that this account's mail notes live under. Give each account its own folder.")
+			.addText((t) =>
+				t
+					.setPlaceholder("10-Mailbox/Gmail")
+					.setValue(account.targetFolder)
+					.onChange(async (v) => {
+						account.targetFolder = v.trim() || "10-Mailbox/Gmail";
+						await this.plugin.saveSettings();
+					}),
+			);
+
 		containerEl.createEl("p", {
-			text: "Requires the Google Calendar API and the calendar.readonly scope. If you enabled it after connecting, click Reconnect above to re-consent.",
+			text: "Map Gmail labels to vault subfolders. Use a system label (INBOX, SENT, STARRED, IMPORTANT) or a user label's name like Projects/ClientX.",
 			cls: "setting-item-description",
 		});
 
+		account.labels.forEach((mapping, li) => {
+			this.renderLabelRow(containerEl, account, mapping, li);
+		});
+
+		new Setting(containerEl).addButton((b) =>
+			b
+				.setButtonText("Add label")
+				.setIcon("plus")
+				.onClick(async () => {
+					account.labels.push({ gmailLabel: "", vaultSubfolder: "", enabled: true });
+					await this.plugin.saveSettings();
+					this.display();
+				}),
+		);
+
 		new Setting(containerEl)
-			.setName("Sync calendar")
-			.setDesc("Fetch upcoming events, write meeting notes, and show the Upcoming sidebar.")
+			.setName("Sync mail newer than")
+			.setDesc(
+				"Only import mail received on/after this date (YYYY-MM-DD). Leave empty for all mail. Pushed to Gmail as an `after:` filter on the first sync.",
+			)
+			.addText((t) =>
+				t
+					.setPlaceholder("2025-01-01")
+					.setValue(account.syncSince)
+					.onChange(async (v) => {
+						const val = v.trim();
+						if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+							t.inputEl.addClass("gmail-mailbox-invalid");
+							return;
+						}
+						t.inputEl.removeClass("gmail-mailbox-invalid");
+						account.syncSince = val;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Download attachments")
+			.setDesc("Save this account's file attachments under each subfolder's _attachments directory.")
 			.addToggle((t) =>
-				t.setValue(s.syncCalendar).onChange(async (v) => {
-					s.syncCalendar = v;
+				t.setValue(account.downloadAttachments).onChange(async (v) => {
+					account.downloadAttachments = v;
 					await this.plugin.saveSettings();
 					this.display();
 				}),
 			);
 
-		if (s.syncCalendar) {
+		if (account.downloadAttachments) {
+			new Setting(containerEl)
+				.setName("Max attachment size (MB)")
+				.setDesc("0 = no limit.")
+				.addText((t) =>
+					t.setValue(String(account.maxAttachmentMB)).onChange(async (v) => {
+						account.maxAttachmentMB = Math.max(0, Math.floor(Number(v) || 0));
+						await this.plugin.saveSettings();
+					}),
+				);
+		}
+
+		new Setting(containerEl)
+			.setName("Sync calendar")
+			.setDesc(
+				"Fetch this account's upcoming events, write meeting notes, and show them in the Upcoming sidebar. " +
+					"Requires the Google Calendar API and the calendar.readonly scope; if you enabled it after connecting, click Reconnect above to re-consent.",
+			)
+			.addToggle((t) =>
+				t.setValue(account.syncCalendar).onChange(async (v) => {
+					account.syncCalendar = v;
+					// Toggling off leaves no sync step to refresh this cache, so
+					// clear it here or the sidebar shows stale events forever.
+					if (!v) account.upcomingCache = [];
+					await this.plugin.saveSettings();
+					this.plugin.refreshUpcomingView();
+					this.display();
+				}),
+			);
+
+		if (account.syncCalendar) {
 			new Setting(containerEl)
 				.setName("Days ahead")
 				.setDesc("Rolling window of upcoming days to keep.")
 				.addText((t) =>
-					t.setValue(String(s.calendarDaysAhead)).onChange(async (v) => {
-						s.calendarDaysAhead = Math.max(1, Math.floor(Number(v) || 14));
+					t.setValue(String(account.calendarDaysAhead)).onChange(async (v) => {
+						account.calendarDaysAhead = Math.max(1, Math.floor(Number(v) || 14));
 						await this.plugin.saveSettings();
 					}),
 				);
@@ -232,9 +350,9 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 				.addText((t) =>
 					t
 						.setPlaceholder("Calendar")
-						.setValue(s.calendarSubfolder)
+						.setValue(account.calendarSubfolder)
 						.onChange(async (v) => {
-							s.calendarSubfolder = v.trim() || "Calendar";
+							account.calendarSubfolder = v.trim() || "Calendar";
 							await this.plugin.saveSettings();
 						}),
 				);
@@ -243,68 +361,20 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 				.setName("Link related emails")
 				.setDesc("Cross-link meeting notes to email notes sharing attendees or subject.")
 				.addToggle((t) =>
-					t.setValue(s.linkRelatedEmails).onChange(async (v) => {
-						s.linkRelatedEmails = v;
+					t.setValue(account.linkRelatedEmails).onChange(async (v) => {
+						account.linkRelatedEmails = v;
 						await this.plugin.saveSettings();
 					}),
 				);
-
-			new Setting(containerEl).setName("Upcoming panel").addButton((b) =>
-				b.setButtonText("Open sidebar").onClick(() => this.plugin.activateUpcomingView()),
-			);
-		}
-
-		// --- Maintenance ---
-		new Setting(containerEl).setName("Maintenance").setHeading();
-		new Setting(containerEl)
-			.setName("Sync now")
-			.setDesc("Stop halts the running sync at the next message/page; already-written notes are kept.")
-			.addButton((b) =>
-				b
-					.setButtonText("Sync now")
-					.setCta()
-					.setDisabled(this.plugin.sync.isRunning)
-					.onClick(() => {
-						// Fire without awaiting so the panel can re-render immediately
-						// (enabling Stop); re-render again when the run settles.
-						void this.plugin.runSync().finally(() => this.display());
-						this.display();
-					}),
-			)
-			.addButton((b) => {
-				b.setButtonText("Stop")
-					.setDisabled(!this.plugin.sync.isRunning)
-					.onClick(() => {
-						this.plugin.stopSync();
-						this.display();
-					});
-				b.buttonEl.addClass("mod-warning");
-			});
-
-		new Setting(containerEl)
-			.setName("Reset sync state")
-			.setDesc(
-				"Clears history cursors and the thread index so the next sync re-enumerates all messages. Existing notes are kept.",
-			)
-			.addButton((b) => {
-				b.setButtonText("Reset").onClick(async () => {
-					this.plugin.sync.resetState();
-					await this.plugin.saveSettings();
-					new Notice("Sync state reset. Next sync will do a full enumeration.");
-				});
-				b.buttonEl.addClass("mod-warning");
-			});
-
-		if (s.lastSync) {
-			containerEl.createEl("p", {
-				text: `Last sync: ${new Date(s.lastSync).toLocaleString()}`,
-				cls: "setting-item-description",
-			});
 		}
 	}
 
-	private renderLabelRow(containerEl: HTMLElement, mapping: LabelMapping, idx: number): void {
-		const s = this.plugin.settings;
+	private renderLabelRow(
+		containerEl: HTMLElement,
+		account: AccountSettings,
+		mapping: LabelMapping,
+		idx: number,
+	): void {
 		const row = new Setting(containerEl)
 			.addText((t) =>
 				t
@@ -338,7 +408,7 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 					.setIcon("trash")
 					.setTooltip("Remove")
 					.onClick(async () => {
-						s.labels.splice(idx, 1);
+						account.labels.splice(idx, 1);
 						await this.plugin.saveSettings();
 						this.display();
 					}),

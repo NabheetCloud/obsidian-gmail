@@ -1,6 +1,7 @@
 import { GmailClient, GmailError } from "./gmail";
 import { NoteWriter } from "./notes";
 import {
+	AccountSettings,
 	CalEvent,
 	LabelMapping,
 	MailMessage,
@@ -47,12 +48,14 @@ function vaultSubfolderFor(m: LabelMapping): string {
 	return (m.vaultSubfolder || m.gmailLabel).replace(/[\\/:*?"<>|]/g, "_").trim() || "Mail";
 }
 
+/** Sync engine for ONE account; the plugin runs one per configured account. */
 export class SyncEngine {
 	private running = false;
 	private cancelRequested = false;
 
 	constructor(
 		private settings: PluginSettings,
+		private account: AccountSettings,
 		private gmail: GmailClient,
 		private notes: NoteWriter,
 		private save: () => Promise<void>,
@@ -96,8 +99,8 @@ export class SyncEngine {
 			cancelled: false,
 		};
 		try {
-			const enabled = this.settings.labels.filter((f) => f.enabled && f.gmailLabel.trim());
-			info(`Sync started: ${enabled.length} label(s).`);
+			const enabled = this.account.labels.filter((f) => f.enabled && f.gmailLabel.trim());
+			info(`[${this.account.displayName}] Sync started: ${enabled.length} label(s).`);
 			for (const mapping of enabled) {
 				if (this.cancelRequested) {
 					report.cancelled = true;
@@ -117,7 +120,7 @@ export class SyncEngine {
 				}
 			}
 
-			if (!report.cancelled && this.settings.syncCalendar) {
+			if (!report.cancelled && this.account.syncCalendar) {
 				try {
 					await this.syncCalendarStep(report);
 				} catch (e) {
@@ -133,10 +136,11 @@ export class SyncEngine {
 
 			// lastSync is only stamped on a full run so a stopped sync doesn't
 			// masquerade as up-to-date.
-			if (!report.cancelled) this.settings.lastSync = new Date().toISOString();
+			if (!report.cancelled) this.account.lastSync = new Date().toISOString();
 			await this.save();
 			info(
-				(report.cancelled ? "Sync stopped: " : "Sync complete: ") +
+				`[${this.account.displayName}] ` +
+					(report.cancelled ? "Sync stopped: " : "Sync complete: ") +
 					`+${report.added} new, ${report.updated} updated, ` +
 					`${report.removed} removed across ${report.labels} label(s); ` +
 					`${report.events} event(s); ${report.errors.length} error(s).`,
@@ -153,10 +157,10 @@ export class SyncEngine {
 		info(`Syncing "${mapping.gmailLabel}" → ${vaultSubfolder}`);
 		const labelId = await this.gmail.resolveLabelId(mapping.gmailLabel);
 		const shouldCancel = () => this.cancelRequested;
-		const cutoff = validCutoff(this.settings.syncSince);
+		const cutoff = validCutoff(this.account.syncSince);
 		const touchedThreadKeys = new Set<string>();
 
-		const priorHistory = this.settings.historyIds[labelId];
+		const priorHistory = this.account.historyIds[labelId];
 		let addIds: string[];
 		let removeIds: string[] = [];
 		let newHistoryId: string | null = null;
@@ -173,7 +177,7 @@ export class SyncEngine {
 				// returns 404. Expected: drop it and re-enumerate from scratch.
 				if (e instanceof GmailError && e.status === 404) {
 					info(`History cursor expired for "${vaultSubfolder}"; re-enumerating from scratch.`);
-					delete this.settings.historyIds[labelId];
+					delete this.account.historyIds[labelId];
 					({ addIds, newHistoryId } = await this.fullEnumerate(labelId, cutoff, vaultSubfolder, shouldCancel));
 				} else {
 					throw e;
@@ -207,7 +211,7 @@ export class SyncEngine {
 					const isUpdate = this.messageExists(message.id);
 					const { ref } = await this.notes.writeMessage(message, vaultSubfolder);
 					this.upsertThread(vaultSubfolder, message, ref, touchedThreadKeys);
-					if (this.settings.downloadAttachments && message.hasAttachments) {
+					if (this.account.downloadAttachments && message.hasAttachments) {
 						await this.saveAttachments(vaultSubfolder, message.id, attachments, report);
 					}
 					if (isUpdate) report.updated++;
@@ -226,10 +230,10 @@ export class SyncEngine {
 			}
 		}
 
-		// Persist the new history cursor so the next run is incremental — but only
+		// Persist the new history cursor so the next run is incremental, but only
 		// if the label finished. On a stopped sync the remaining messages weren't
 		// written, so we keep the old cursor (or none) to force a re-fetch.
-		if (newHistoryId && !cancelled) this.settings.historyIds[labelId] = newHistoryId;
+		if (newHistoryId && !cancelled) this.account.historyIds[labelId] = newHistoryId;
 
 		info(
 			`"${vaultSubfolder}" ${cancelled ? "stopped" : "done"}: ${done}/${total} processed` +
@@ -271,9 +275,9 @@ export class SyncEngine {
 	 */
 	private async syncCalendarStep(report: SyncReport): Promise<void> {
 		const subfolder =
-			(this.settings.calendarSubfolder || "Calendar").replace(/[\\/:*?"<>|]/g, "_").trim() ||
+			(this.account.calendarSubfolder || "Calendar").replace(/[\\/:*?"<>|]/g, "_").trim() ||
 			"Calendar";
-		const days = Math.max(1, this.settings.calendarDaysAhead || 14);
+		const days = Math.max(1, this.account.calendarDaysAhead || 14);
 		const now = new Date();
 		const timeMin = now.toISOString();
 		const timeMax = new Date(now.getTime() + days * 86_400_000).toISOString();
@@ -285,7 +289,7 @@ export class SyncEngine {
 			() => this.cancelRequested,
 		);
 
-		const index = this.settings.linkRelatedEmails ? this.buildEmailIndex() : null;
+		const index = this.account.linkRelatedEmails ? this.buildEmailIndex() : null;
 		const currentIds = new Set<string>();
 		const upcoming: UpcomingEvent[] = [];
 		const total = events.length;
@@ -304,12 +308,13 @@ export class SyncEngine {
 
 			const related = index ? this.matchRelatedEmails(ev, index) : [];
 			const notePath = await this.notes.writeEvent(ev, subfolder, related);
-			this.settings.calendarNotes[ev.id] = notePath;
+			this.account.calendarNotes[ev.id] = notePath;
 			currentIds.add(ev.id);
 			report.events++;
 
 			upcoming.push({
 				id: ev.id,
+				accountName: this.account.displayName,
 				subject: ev.summary?.trim() || "(no title)",
 				startIso: ev.startIso,
 				endIso: ev.endIso,
@@ -323,16 +328,16 @@ export class SyncEngine {
 
 		// Reconcile: any previously-written event no longer in the window
 		// (cancelled, moved out, past) gets its note trashed.
-		for (const [id, notePath] of Object.entries(this.settings.calendarNotes)) {
+		for (const [id, notePath] of Object.entries(this.account.calendarNotes)) {
 			if (!currentIds.has(id)) {
 				await this.notes.deleteEventNote(notePath);
-				delete this.settings.calendarNotes[id];
+				delete this.account.calendarNotes[id];
 			}
 		}
 
 		upcoming.sort((a, b) => (a.startIso < b.startIso ? -1 : 1));
-		this.settings.upcomingCache = upcoming;
-		info(`Calendar done: ${upcoming.length} upcoming event(s).`);
+		this.account.upcomingCache = upcoming;
+		info(`[${this.account.displayName}] Calendar done: ${upcoming.length} upcoming event(s).`);
 	}
 
 	/** Indexes email notes by participant email and normalized subject. */
@@ -344,7 +349,7 @@ export class SyncEngine {
 			if (arr) arr.push(ref);
 			else map.set(key, [ref]);
 		};
-		for (const t of Object.values(this.settings.threads)) {
+		for (const t of Object.values(this.account.threads)) {
 			for (const m of t.messages) {
 				const ref: EmailRef = { notePath: m.notePath, receivedIso: m.receivedIso };
 				const subj = normalizeSubject(m.subject).toLowerCase();
@@ -392,7 +397,7 @@ export class SyncEngine {
 		report: SyncReport,
 	): Promise<void> {
 		try {
-			const limit = this.settings.maxAttachmentMB * 1024 * 1024;
+			const limit = this.account.maxAttachmentMB * 1024 * 1024;
 			for (const a of attachments) {
 				if (!a.attachmentId) continue;
 				if (limit > 0 && a.size > limit) {
@@ -410,7 +415,7 @@ export class SyncEngine {
 	// ---- thread bookkeeping ----
 
 	private messageExists(id: string): boolean {
-		for (const t of Object.values(this.settings.threads)) {
+		for (const t of Object.values(this.account.threads)) {
 			if (t.messages.some((m) => m.id === id)) return true;
 		}
 		return false;
@@ -423,7 +428,7 @@ export class SyncEngine {
 		touched: Set<string>,
 	): void {
 		const key = threadKey(vaultSubfolder, msg.threadId ?? "");
-		let entry: ThreadEntry | undefined = this.settings.threads[key];
+		let entry: ThreadEntry | undefined = this.account.threads[key];
 		if (!entry) {
 			entry = {
 				threadId: msg.threadId ?? "",
@@ -431,7 +436,7 @@ export class SyncEngine {
 				subject: normalizeSubject(msg.subject),
 				messages: [],
 			};
-			this.settings.threads[key] = entry;
+			this.account.threads[key] = entry;
 		}
 		const existingIdx = entry.messages.findIndex((m) => m.id === ref.id);
 		if (existingIdx >= 0) entry.messages[existingIdx] = ref;
@@ -442,13 +447,13 @@ export class SyncEngine {
 	}
 
 	private removeMessage(id: string, touched: Set<string>): boolean {
-		for (const [key, t] of Object.entries(this.settings.threads)) {
+		for (const [key, t] of Object.entries(this.account.threads)) {
 			const idx = t.messages.findIndex((m) => m.id === id);
 			if (idx >= 0) {
 				const [ref] = t.messages.splice(idx, 1);
 				void this.notes.deleteMessageNote(ref.notePath);
 				touched.add(key);
-				if (t.messages.length === 0) delete this.settings.threads[key];
+				if (t.messages.length === 0) delete this.account.threads[key];
 				return true;
 			}
 		}
@@ -456,16 +461,16 @@ export class SyncEngine {
 	}
 
 	private threadsForSubfolder(vaultSubfolder: string): ThreadEntry[] {
-		return Object.values(this.settings.threads).filter((t) => t.vaultSubfolder === vaultSubfolder);
+		return Object.values(this.account.threads).filter((t) => t.vaultSubfolder === vaultSubfolder);
 	}
 
-	/** Clears history + thread state so the next sync re-enumerates from scratch. */
+	/** Clears this account's history + thread state so the next sync re-enumerates. */
 	resetState(): void {
-		this.settings.historyIds = {};
-		this.settings.threads = {};
-		this.settings.calendarNotes = {};
-		this.settings.upcomingCache = [];
-		this.settings.lastSync = null;
+		this.account.historyIds = {};
+		this.account.threads = {};
+		this.account.calendarNotes = {};
+		this.account.upcomingCache = [];
+		this.account.lastSync = null;
 	}
 }
 

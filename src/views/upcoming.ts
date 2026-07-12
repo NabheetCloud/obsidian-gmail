@@ -35,11 +35,13 @@ export class UpcomingView extends ItemView {
 		const refresh = header.createEl("button", { text: "Sync" });
 		refresh.onclick = () => this.plugin.runSync();
 
-		const events = [...this.plugin.settings.upcomingCache].sort((a, b) =>
-			a.startIso < b.startIso ? -1 : 1,
-		);
+		// Merge every account's cache into one chronological list.
+		const accounts = this.plugin.settings.accounts;
+		const events = accounts
+			.flatMap((a) => a.upcomingCache)
+			.sort((a, b) => (a.startIso < b.startIso ? -1 : 1));
 
-		if (!this.plugin.settings.syncCalendar) {
+		if (!accounts.some((a) => a.syncCalendar)) {
 			root.createEl("p", {
 				text: "Calendar sync is off. Enable it in plugin settings.",
 				cls: "gmail-upcoming-empty",
@@ -54,6 +56,7 @@ export class UpcomingView extends ItemView {
 			return;
 		}
 
+		const showAccount = accounts.length > 1;
 		let lastDay = "";
 		for (const ev of events) {
 			const dayLabel = dayHeading(ev.startIso);
@@ -61,11 +64,11 @@ export class UpcomingView extends ItemView {
 				root.createEl("div", { text: dayLabel, cls: "gmail-upcoming-day" });
 				lastDay = dayLabel;
 			}
-			this.renderRow(root, ev);
+			this.renderRow(root, ev, showAccount);
 		}
 	}
 
-	private renderRow(root: HTMLElement, ev: UpcomingEvent): void {
+	private renderRow(root: HTMLElement, ev: UpcomingEvent, showAccount: boolean): void {
 		const row = root.createDiv({ cls: "gmail-upcoming-row" });
 
 		const time = row.createDiv({ cls: "gmail-upcoming-time" });
@@ -73,6 +76,9 @@ export class UpcomingView extends ItemView {
 
 		const body = row.createDiv({ cls: "gmail-upcoming-body" });
 		const title = body.createDiv({ cls: "gmail-upcoming-title", text: ev.subject });
+		if (showAccount && ev.accountName) {
+			title.createSpan({ cls: "gmail-upcoming-account", text: ev.accountName });
+		}
 		if (ev.location) {
 			body.createDiv({ cls: "gmail-upcoming-loc", text: ev.location });
 		}

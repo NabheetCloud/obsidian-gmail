@@ -10,7 +10,8 @@ Built as a sibling to the Outlook Mailbox plugin and shares its design: incremen
 - A regenerated `_Thread Index.md` per label grouping messages by conversation.
 - Incremental sync via Gmail's `history.list` — only changes since the last run. First run enumerates the whole label (optionally filtered by a start date).
 - Google Calendar: a rolling 14-day (configurable) upcoming window, one note per event, an *Upcoming meetings* sidebar, and cross-links from meetings to related emails (shared attendees + subject).
-- Optional attachment download with a size cap.
+- Optional attachment download with a size cap, per account.
+- Multiple Google accounts (e.g. work + personal), each with its own folders, labels, calendar, attachments, and sync state.
 
 ## One-time Google Cloud setup
 
@@ -30,6 +31,15 @@ You need a Google Cloud OAuth client. It's free.
    - Google's Desktop-app "client secret" is **not** confidential (it ships inside every installed app). Google's token endpoint still requires it even under PKCE, which is why the plugin has a field for it.
 
 Then in Obsidian: **Settings → Gmail Mailbox → Connect**. A browser tab opens for consent; approve and return to Obsidian.
+
+## Multiple accounts (e.g. work + personal)
+
+The plugin syncs any number of Google accounts side by side. In **Settings → Gmail Mailbox**, click **Add account**, name it (say, "Work"), point it at its own target folder, and hit **Connect** to sign in with that identity.
+
+- All accounts share the one OAuth client above; each signs in with its own consent. Add every address you'll connect as a test user on the consent screen.
+- Each account keeps its own labels, sync-since date, calendar settings, and sync state, so accounts never interfere with each other.
+- Give each account its own target folder; two accounts writing into the same folder is not supported.
+- The Upcoming sidebar merges all calendars and tags each event with its account name.
 
 ## Scopes requested
 
@@ -62,7 +72,7 @@ Hit **Stop** in Settings → Maintenance, or run the *Gmail Mailbox: Stop sync* 
 
 ## Security note
 
-The OAuth **refresh token** and your **client secret** are stored in the plugin's `data.json` inside your vault, in plain text (same as the Outlook plugin). They are not encrypted at rest. Anyone with read access to your vault files can read them. Keep your vault private; revoke access anytime at <https://myaccount.google.com/permissions>.
+The OAuth **refresh tokens** (one per account) and your **client secret** are stored in the plugin's `data.json` inside your vault, in plain text (same as the Outlook plugin). They are not encrypted at rest. Anyone with read access to your vault files can read them. Keep your vault private; revoke access anytime at <https://myaccount.google.com/permissions>.
 
 ## Troubleshooting
 
