@@ -1,6 +1,7 @@
 import { requestUrl, RequestUrlResponse } from "obsidian";
 import { interactiveLogin, refreshAccessToken, TokenSet } from "./auth";
 import {
+	AccountSettings,
 	CalEvent,
 	GmailLabel,
 	MailAttachment,
@@ -83,9 +84,10 @@ export interface HistoryResult {
 }
 
 /**
- * Thin Gmail + Google Calendar client. Owns the in-memory access token and
- * refreshes it transparently. Persistence of the refresh token is delegated
- * back to the plugin via `onTokens`.
+ * Thin Gmail + Google Calendar client for ONE account. Owns the in-memory
+ * access token and refreshes it transparently; the refresh token lives on the
+ * account, and persistence is delegated back to the plugin via `onTokens`.
+ * The OAuth client (id + secret) is shared across accounts via `settings`.
  */
 export class GmailClient {
 	private token: TokenSet | null = null;
@@ -93,15 +95,16 @@ export class GmailClient {
 
 	constructor(
 		private settings: PluginSettings,
+		private account: AccountSettings,
 		private openBrowser: (url: string) => void,
 		private onTokens: (refreshToken: string | null) => Promise<void>,
 	) {}
 
 	get isAuthenticated(): boolean {
-		return !!this.settings.refreshToken;
+		return !!this.account.refreshToken;
 	}
 
-	/** Interactive sign-in; stores the refresh token. */
+	/** Interactive sign-in; stores the refresh token on the account. */
 	async login(): Promise<void> {
 		const tokens = await interactiveLogin(
 			this.settings.clientId,
@@ -109,15 +112,15 @@ export class GmailClient {
 			this.openBrowser,
 		);
 		this.token = tokens;
-		this.settings.refreshToken = tokens.refreshToken;
+		this.account.refreshToken = tokens.refreshToken;
 		await this.onTokens(tokens.refreshToken);
-		log("Interactive login complete.");
+		log(`Interactive login complete (${this.account.displayName}).`);
 	}
 
 	async logout(): Promise<void> {
 		this.token = null;
 		this.labelCache = null;
-		this.settings.refreshToken = null;
+		this.account.refreshToken = null;
 		await this.onTokens(null);
 	}
 
@@ -125,18 +128,20 @@ export class GmailClient {
 		if (this.token && this.token.expiresAt - 60_000 > Date.now()) {
 			return this.token.accessToken;
 		}
-		if (!this.settings.refreshToken) {
-			throw new Error("Not signed in. Open the plugin settings and connect your account.");
+		if (!this.account.refreshToken) {
+			throw new Error(
+				`Account "${this.account.displayName}" is not signed in. Open the plugin settings and connect it.`,
+			);
 		}
-		log("Refreshing access token.");
+		log(`Refreshing access token (${this.account.displayName}).`);
 		const tokens = await refreshAccessToken(
 			this.settings.clientId,
 			this.settings.clientSecret,
-			this.settings.refreshToken,
+			this.account.refreshToken,
 		);
 		this.token = tokens;
-		if (tokens.refreshToken && tokens.refreshToken !== this.settings.refreshToken) {
-			this.settings.refreshToken = tokens.refreshToken;
+		if (tokens.refreshToken && tokens.refreshToken !== this.account.refreshToken) {
+			this.account.refreshToken = tokens.refreshToken;
 			await this.onTokens(tokens.refreshToken);
 		}
 		return tokens.accessToken;

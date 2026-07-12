@@ -17,18 +17,21 @@ export interface LabelMapping {
 	enabled: boolean;
 }
 
-export interface PluginSettings {
-	// --- Google Cloud OAuth client (Desktop app) ---
-	clientId: string;
-	/**
-	 * Desktop-app client secret. Google's installed-app secret is NOT confidential
-	 * (it ships with the app) but Google's token endpoint still requires it for
-	 * the "Desktop app" client type, even under PKCE.
-	 */
-	clientSecret: string;
+/**
+ * One connected Google account. Everything account-specific lives here,
+ * including the persisted runtime state, so two accounts can never collide
+ * even when they use the same label names.
+ */
+export interface AccountSettings {
+	/** Stable internal id; never changes after creation. */
+	id: string;
+	/** Label shown in settings, notices, and the Upcoming sidebar (e.g. "Work"). */
+	displayName: string;
+	/** Connected mailbox address; filled in after a successful login. */
+	emailAddress: string | null;
 
 	// --- Vault layout ---
-	/** Root vault folder for all mail, e.g. "10-Mailbox/Gmail". */
+	/** Root vault folder for this account's mail, e.g. "10-Mailbox/Gmail". */
 	targetFolder: string;
 	labels: LabelMapping[];
 
@@ -39,19 +42,9 @@ export interface PluginSettings {
 	 * write-filter on incremental history syncs.
 	 */
 	syncSince: string;
-	/** Auto-sync interval in minutes. 0 disables the timer. */
-	syncIntervalMinutes: number;
-	/** Sync automatically when Obsidian starts. */
-	syncOnStartup: boolean;
-	/** Save attachments alongside notes under an `_attachments` subfolder. */
-	downloadAttachments: boolean;
-	/** Max attachment size to download, in MB (0 = no limit). */
-	maxAttachmentMB: number;
-	/** Verbose console logging under the `[obs-gmail]` prefix. */
-	debugLogging: boolean;
 
 	// --- Calendar ---
-	/** Fetch Google Calendar events and show the Upcoming sidebar. */
+	/** Fetch Google Calendar events and show them in the Upcoming sidebar. */
 	syncCalendar: boolean;
 	/** Rolling window size in days for upcoming events. */
 	calendarDaysAhead: number;
@@ -73,6 +66,32 @@ export interface PluginSettings {
 	upcomingCache: UpcomingEvent[];
 	/** ISO timestamp of last successful sync. */
 	lastSync: string | null;
+}
+
+export interface PluginSettings {
+	// --- Google Cloud OAuth client (Desktop app), shared by every account ---
+	clientId: string;
+	/**
+	 * Desktop-app client secret. Google's installed-app secret is NOT confidential
+	 * (it ships with the app) but Google's token endpoint still requires it for
+	 * the "Desktop app" client type, even under PKCE.
+	 */
+	clientSecret: string;
+
+	/** Connected Google accounts. Always at least one entry. */
+	accounts: AccountSettings[];
+
+	// --- Sync behaviour (shared) ---
+	/** Auto-sync interval in minutes. 0 disables the timer. */
+	syncIntervalMinutes: number;
+	/** Sync automatically when Obsidian starts. */
+	syncOnStartup: boolean;
+	/** Save attachments alongside notes under an `_attachments` subfolder. */
+	downloadAttachments: boolean;
+	/** Max attachment size to download, in MB (0 = no limit). */
+	maxAttachmentMB: number;
+	/** Verbose console logging under the `[obs-gmail]` prefix. */
+	debugLogging: boolean;
 }
 
 export interface ThreadEntry {
@@ -152,6 +171,8 @@ export interface CalEvent {
 /** Lightweight summary persisted for the Upcoming sidebar. */
 export interface UpcomingEvent {
 	id: string;
+	/** Account displayName, for the sidebar badge when several accounts sync. */
+	accountName?: string;
 	subject: string;
 	startIso: string;
 	endIso: string;
@@ -162,28 +183,65 @@ export interface UpcomingEvent {
 	webLink: string;
 }
 
-export const DEFAULT_SETTINGS: PluginSettings = {
-	clientId: "",
-	clientSecret: "",
-	targetFolder: "10-Mailbox/Gmail",
-	labels: [{ gmailLabel: "INBOX", vaultSubfolder: "Inbox", enabled: true }],
-	syncSince: "",
-	syncIntervalMinutes: 15,
-	syncOnStartup: true,
-	downloadAttachments: false,
-	maxAttachmentMB: 10,
-	debugLogging: false,
-	syncCalendar: false,
-	calendarDaysAhead: 14,
-	calendarSubfolder: "Calendar",
-	linkRelatedEmails: true,
-	refreshToken: null,
-	historyIds: {},
-	threads: {},
-	calendarNotes: {},
-	upcomingCache: [],
-	lastSync: null,
-};
+function makeId(): string {
+	try {
+		return crypto.randomUUID();
+	} catch {
+		return `acct-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+	}
+}
+
+/**
+ * Fills every missing account field with its default. Also the "new account"
+ * factory: `normalizeAccount({ displayName: "Work" })`.
+ */
+export function normalizeAccount(a: Partial<AccountSettings>): AccountSettings {
+	return {
+		id: a.id || makeId(),
+		displayName: a.displayName ?? "Account 1",
+		emailAddress: a.emailAddress ?? null,
+		targetFolder: a.targetFolder || "10-Mailbox/Gmail",
+		labels: a.labels?.length
+			? a.labels
+			: [{ gmailLabel: "INBOX", vaultSubfolder: "Inbox", enabled: true }],
+		syncSince: a.syncSince ?? "",
+		syncCalendar: a.syncCalendar ?? false,
+		calendarDaysAhead: a.calendarDaysAhead ?? 14,
+		calendarSubfolder: a.calendarSubfolder ?? "Calendar",
+		linkRelatedEmails: a.linkRelatedEmails ?? true,
+		refreshToken: a.refreshToken ?? null,
+		historyIds: a.historyIds ?? {},
+		threads: a.threads ?? {},
+		calendarNotes: a.calendarNotes ?? {},
+		upcomingCache: a.upcomingCache ?? [],
+		lastSync: a.lastSync ?? null,
+	};
+}
+
+/**
+ * Normalizes loaded data into the current shape. Pre-multi-account data kept
+ * every account field (token, labels, folders, history, threads) at the top
+ * level; those become `accounts[0]`, so existing users upgrade without
+ * re-consenting or re-syncing. A fresh install (`{}`) yields one default,
+ * unconnected account.
+ */
+export function migrateSettings(data: unknown): PluginSettings {
+	const raw = (data ?? {}) as Partial<PluginSettings> & Partial<AccountSettings>;
+	const accounts =
+		Array.isArray(raw.accounts) && raw.accounts.length
+			? raw.accounts.map((a) => normalizeAccount(a ?? {}))
+			: [normalizeAccount(raw)];
+	return {
+		clientId: raw.clientId ?? "",
+		clientSecret: raw.clientSecret ?? "",
+		accounts,
+		syncIntervalMinutes: raw.syncIntervalMinutes ?? 15,
+		syncOnStartup: raw.syncOnStartup ?? true,
+		downloadAttachments: raw.downloadAttachments ?? false,
+		maxAttachmentMB: raw.maxAttachmentMB ?? 10,
+		debugLogging: raw.debugLogging ?? false,
+	};
+}
 
 export const GMAIL_SCOPES = [
 	"https://www.googleapis.com/auth/gmail.readonly",

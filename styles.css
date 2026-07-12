@@ -69,3 +69,15 @@
 	font-size: 0.78em;
 	cursor: pointer;
 }
+.gmail-upcoming-account {
+	display: inline-block;
+	margin-left: 0.4em;
+	padding: 0 0.45em;
+	font-size: 0.7em;
+	line-height: 1.6;
+	border-radius: 0.7em;
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+	vertical-align: middle;
+	white-space: nowrap;
+}
