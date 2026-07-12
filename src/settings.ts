@@ -58,8 +58,24 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 				.setIcon("plus")
 				.setDisabled(this.plugin.isSyncing)
 				.onClick(async () => {
+					// Re-check at click time: the disabled state above is only
+					// computed on render, and a background auto-sync may have
+					// started since.
+					if (this.plugin.isSyncing) {
+						new Notice("Gmail Mailbox: wait for the running sync to finish.");
+						return;
+					}
+					// Default the new account to a folder no existing account
+					// writes into; accounts sharing a target folder overwrite
+					// each other's thread indexes.
+					const used = new Set(s.accounts.map((a) => a.targetFolder));
+					let folder = "10-Mailbox/Gmail";
+					for (let i = 2; used.has(folder); i++) folder = `10-Mailbox/Gmail ${i}`;
 					s.accounts.push(
-						normalizeAccount({ displayName: `Account ${s.accounts.length + 1}` }),
+						normalizeAccount({
+							displayName: `Account ${s.accounts.length + 1}`,
+							targetFolder: folder,
+						}),
 					);
 					this.plugin.rebuildContexts();
 					await this.plugin.saveSettings();
@@ -184,6 +200,11 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 					.setTooltip("Remove account. Notes already in the vault are kept.")
 					.setDisabled(this.plugin.isSyncing)
 					.onClick(async () => {
+						// Re-check at click time; see the Add-account handler.
+						if (this.plugin.isSyncing) {
+							new Notice("Gmail Mailbox: wait for the running sync to finish.");
+							return;
+						}
 						s.accounts.splice(idx, 1);
 						// The UI (and sync loop) assume at least one account exists.
 						if (!s.accounts.length) s.accounts.push(normalizeAccount({}));
@@ -304,7 +325,11 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 			.addToggle((t) =>
 				t.setValue(account.syncCalendar).onChange(async (v) => {
 					account.syncCalendar = v;
+					// Toggling off leaves no sync step to refresh this cache, so
+					// clear it here or the sidebar shows stale events forever.
+					if (!v) account.upcomingCache = [];
 					await this.plugin.saveSettings();
+					this.plugin.refreshUpcomingView();
 					this.display();
 				}),
 			);

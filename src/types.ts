@@ -19,8 +19,10 @@ export interface LabelMapping {
 
 /**
  * One connected Google account. Everything account-specific lives here,
- * including the persisted runtime state, so two accounts can never collide
- * even when they use the same label names.
+ * including the persisted runtime state, so accounts never share sync state
+ * even when they use the same label names. Vault paths are the one shared
+ * namespace: keep each account's targetFolder distinct (the settings UI
+ * defaults new accounts to an unused folder).
  */
 export interface AccountSettings {
 	/** Stable internal id; never changes after creation. */
