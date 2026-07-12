@@ -54,8 +54,9 @@ export class GmailMailboxSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).addButton((b) =>
 			b
+				// No setIcon here: an icon replaces the button text, leaving a
+				// bare "+" indistinguishable from the per-account "Add label".
 				.setButtonText("Add account")
-				.setIcon("plus")
 				.setDisabled(this.plugin.isSyncing)
 				.onClick(async () => {
 					// Re-check at click time: the disabled state above is only
